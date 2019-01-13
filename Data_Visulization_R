@@ -1,0 +1,159 @@
+library("tidyr")
+library("ggplot2")
+library("dplyr")
+library("corrplot")
+library("xts")
+library("TTR")
+library("tseries")
+library("forecast")
+library("rugarch")
+getwd()
+setwd("C:\\Users\\Gaurish\\Desktop\\Sabre")
+Dataset<-read.csv("DataSet.csv",header = TRUE, stringsAsFactors = FALSE, na.strings = c(""))
+
+#Checking if there is any missing data
+null_values<-data.frame(lapply(Dataset,function(x) sum(is.na(x))))
+null_values<-gather(null_values) #no null value
+
+
+#finding unique value pr column
+unique_values<-data.frame(lapply(Dataset, function(x) length(unique(x))))
+unique_values<-gather(unique_values,key="feature",value="unique_value")
+unique_values%>%ggplot(aes(x=feature,y=unique_value))+geom_bar(stat = "identity",fill="Red")+theme_bw()
+#visulazing
+par(mfrow=c(3,1))
+hist(Dataset$CabinCapacity)
+hist(Dataset$CabinBookings)
+hist(Dataset$AverageFarePerBooking)
+
+
+Dataset$Depar_date_time<-as.POSIXct(paste(Dataset$DepartureDate, Dataset$DepartureTime), format="%d/%m/%Y %H:%M")
+Dataset$Arriv_date_time<-as.POSIXct(paste(Dataset$ArrivalDate, Dataset$ArrivalTime), format="%d/%m/%Y %H:%M")
+Dataset<-mutate(Dataset,Journeytime=ifelse(Arriv_date_time-Depar_date_time<3,"T_lower","T_upper"))
+
+#creating a column for year - Y_lower, Y_upper
+#Dataset<-mutate(Dataset,Year=ifelse(substr(Dataset$Arriv_date_time,1,4)=="2014","Y_lower","Y_upper"))
+#setting jouney
+#Dataset<-mutate(Dataset,route=ifelse(Origin=="BOM","route-1","route-2"))
+
+par(mfrow=c(3,2))
+#checking for number of seats in Business class and passenger class in each flight
+cabin_capacity<-Dataset%>%group_by(FlightID,Cabin)%>%summarise(capacity=sum(CabinCapacity))
+cabin_capacity<-data.frame(cabin_capacity)
+cabin_capacity%>%ggplot(aes(x=factor(FlightID),y=capacity,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("FlightID vs Seats Available")
+cabin_capacity<-data.frame(reshape(cabin_capacity,idvar = "FlightID",timevar = "Cabin",direction = "wide"),row.names = NULL)
+colnames(cabin_capacity)<-c("FlightID","Business_Capacity","Economy_Capacity")
+
+#checking for number of seats booked in Business class and passenger class in each flight
+cabin_booking<-Dataset%>%group_by(FlightID,Cabin)%>%summarise(Bookings=sum(CabinBookings))
+cabin_booking<-data.frame(cabin_booking)
+cabin_booking%>%ggplot(aes(x=factor(FlightID),y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("FlightID vs Bookings done")
+cabin_booking<-data.frame(reshape(cabin_booking,idvar = "FlightID",timevar = "Cabin",direction = "wide"),row.names = NULL)
+colnames(cabin_booking)<-c("FlightID","Business_Booking","Economy_Booking")
+Bookings=sum(CabinBookings)
+
+
+
+#departure time vs bookings, fill by class, Origin=BOM
+BOM_flight<-Dataset[Dataset$Origin=="BOM",]
+BOM_flight<-BOM_flight%>%group_by(DepartureTime,Cabin)%>%summarise(Bookings=sum(CabinBookings))
+BOM_flight<-data.frame(BOM_flight)
+BOM_flight%>%ggplot(aes(x=factor(DepartureTime),y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("Departure Time vs Bookings for BOM flight")
+BOM_flight<-data.frame(reshape(data=BOM_flight,timevar = "Cabin",idvar = "DepartureTime",direction = "wide"),row.names = NULL)
+colnames(BOM_flight)<-c("DepartureTime","Business_Booking","Economy_Booking")
+
+
+#departure time vs bookings, fill by class, Origin=DXB
+DXB_flight_depart<-Dataset[Dataset$Origin=="DXB",]
+DXB_flight_depart<-DXB_flight_depart%>%group_by(DepartureTime,Cabin)%>%summarise(Bookings=sum(CabinBookings))
+DXB_flight_depart<-data.frame(DXB_flight_depart)
+DXB_flight_depart%>%ggplot(aes(x=factor(DepartureTime),y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("Departure Time vs Bookings for DXB flight")
+DXB_flight_depart<-data.frame(reshape(data=DXB_flight_depart,timevar = "Cabin",idvar = "DepartureTime",direction = "wide"),row.names = NULL)
+colnames(DXB_flight_depart)<-c("DepartureTime","Business_Booking","Economy_Booking")
+
+
+
+#Arrival time vs bookings, fill by class, Origin=BOM
+BOM_flight_arr<-Dataset[Dataset$Origin=="BOM",]
+BOM_flight_arr<-BOM_flight_arr%>%group_by(ArrivalTime,Cabin)%>%summarise(Bookings=sum(CabinBookings))
+BOM_flight_arr<-data.frame(BOM_flight_arr)
+BOM_flight_arr%>%ggplot(aes(x=factor(ArrivalTime),y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("ArrivalTime vs Bookings for BOM flight")
+BOM_flight_arr<-data.frame(reshape(data=BOM_flight_arr,timevar = "Cabin",idvar = "ArrivalTime",direction = "wide"),row.names = NULL)
+colnames(BOM_flight_arr)<-c("ArrivalTime","Business_Booking","Economy_Booking")
+
+
+#Arrival time vs bookings, fill by class, Origin=DXB
+DXB_flight_arr<-Dataset[Dataset$Origin=="DXB",]
+DXB_flight_arr<-DXB_flight_arr%>%group_by(ArrivalTime,Cabin)%>%summarise(Bookings=sum(CabinBookings))
+DXB_flight_arr<-data.frame(DXB_flight_arr)
+DXB_flight_arr%>%ggplot(aes(x=factor(ArrivalTime),y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("ArrivalTime vs Bookings for DXB flight")
+DXB_flight_arr<-data.frame(reshape(data=DXB_flight_arr,timevar = "Cabin",idvar = "ArrivalTime",direction = "wide"),row.names = NULL)
+colnames(DXB_flight_arr)<-c("ArrivalTime","Business_Booking","Economy_Booking")
+
+
+##extracting months from year value
+x<-as.POSIXct(Dataset[,"DepartureDate"])
+Dataset$month<-(format(x,"%B"))
+#%Dataset1<-Dataset %>% arrange(match(month, month.name))
+Booking_month<-data.frame(Dataset%>%group_by(month,Cabin)%>%summarise(Bookings=sum(CabinBookings)))
+Booking_month<-Booking_month%>%arrange(match(month, month.name))
+Booking_month$month<-factor(Booking_month$month,ordered = TRUE,levels = month.name)
+Booking_month%>%ggplot(aes(x=month,y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("Month vs Bookins")
+#boxplot(Booking_month[Booking_month$Cabin=="Business Cabin",]$Bookings~Booking_month[Booking_month$Cabin=="Business Cabin",]$month)
+
+#checking hypothesis for day(weekend should have more rush)
+Dataset$day<-weekdays(as.Date(Dataset$Arriv_date_time))
+
+Dataset$day=factor(days, levels= c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+par(mfrow=c(2,2))
+D1<-Dataset[Dataset$Cabin=="Business Cabin",]
+D2<-Dataset[Dataset$Cabin=="Economy Cabin",]
+boxplot(D1$CabinBookings~D1$day,xlab="Business class",ylab="Booking")
+boxplot(D2$CabinBookings~D2$day,xlab="Economy class",ylab="Bookings")
+
+
+#proving demand is increasing over time
+Dataset$month_year=substr(Dataset$DepartureDate,1,10)
+Dataset$month_year=as.factor(Dataset$month_year)
+#boxplot(Dataset$CabinBookings~Dataset$month_year,xlab="year-month",ylab="Bookings")
+
+
+
+
+
+#checking hypothesis with air fare , more fare should mean less booking for that day
+sub1=data.frame(D1$CabinCapacity,D1$CabinBookings,D1$AverageFarePerBooking)
+sub2=data.frame(D2$CabinCapacity,D2$CabinBookings,D2$AverageFarePerBooking)
+cor(sub1)
+cor(sub2)
+par(mfrow=c(1,1))
+
+
+
+par(mfrow=c(2,1))
+corrplot(cor(sub1))
+corrplot(cor(sub2))
+boxplot(D1$CabinBookings~D1$day,xlab="Business class",ylab="Booking")
+boxplot(D2$CabinBookings~D2$day,xlab="Economy class",ylab="Bookings")
+boxplot(Dataset$CabinBookings~Dataset$month_year,xlab="year-month",ylab="Bookings")
+Booking_month%>%ggplot(aes(x=month,y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("Month vs Bookins")
+
+
+
+#DXB_flight_arr%>%ggplot(aes(x=factor(ArrivalTime),y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("ArrivalTime vs Bookings for DXB flight")
+#unique_values%>%ggplot(aes(x=feature,y=unique_value))+geom_bar(stat = "identity",fill="Red")+theme_bw()
+par(mfrow=c(3,1))
+hist(Dataset$CabinCapacity)
+hist(Dataset$CabinBookings)
+hist(Dataset$AverageFarePerBooking)
+
+par(mfrow=c(3,2))
+cabin_capacity%>%ggplot(aes(x=factor(FlightID),y=capacity,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("FlightID vs Seats Available")
+cabin_booking%>%ggplot(aes(x=factor(FlightID),y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("FlightID vs Bookings done")
+BOM_flight%>%ggplot(aes(x=factor(DepartureTime),y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("Departure Time vs Bookings for BOM flight")
+DXB_flight_depart%>%ggplot(aes(x=factor(DepartureTime),y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("Departure Time vs Bookings for DXB flight")
+BOM_flight_arr%>%ggplot(aes(x=factor(ArrivalTime),y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("ArrivalTime vs Bookings for BOM flight")
+DXB_flight_arr%>%ggplot(aes(x=factor(ArrivalTime),y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("ArrivalTime vs Bookings for DXB flight")
+#Booking_month%>%ggplot(aes(x=month,y=Bookings,fill=Cabin))+geom_bar(stat = "identity")+ggtitle("Month vs Bookins")
+
+
